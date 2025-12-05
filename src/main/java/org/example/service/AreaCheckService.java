@@ -16,52 +16,45 @@ import java.util.Set;
 @Stateless
 public class AreaCheckService {
 
-    private final Set<Double> validXValues = Set.of(-3.0, -2.0, -1.0, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0);
-    private final Set<Double> validRValues = Set.of(1.0, 2.0, 3.0, 4.0, 5.0);
+    private final Set<Double> validRValues = Set.of(0.0, 1.0, 2.0, 3.0, 4.0, 5.0);
 
     @EJB
     private PointRepository pointRepository;
 
     public Point checkPoint(CheckRequest request, User user) {
-        Long startTime = System.currentTimeMillis();
+        Long startTime = System.nanoTime();
+
         ValidationAnswer answer = validate(request);
         if (!answer.status()) throw ValidationException.withDescription(answer.parameter(), answer.message());
+
         boolean hit = checkHit(request.getX(), request.getY(), request.getR());
+
         Point point = Point.builder()
                 .x(request.getX())
                 .y(request.getY())
                 .r(request.getR())
                 .hit(hit)
                 .currentTime(LocalDateTime.now())
-                .executionTime(System.currentTimeMillis() - startTime)
+                .executionTime((System.nanoTime() - startTime) / 1000)
                 .user(user)
                 .build();
-        return pointRepository.save(point);
+
+        Point savedPoint = pointRepository.save(point);
+
+        pointRepository.updateGeom(
+                savedPoint.getId(),
+                request.getX().doubleValue(),
+                request.getY().doubleValue()
+        );
+
+        return savedPoint;
     }
 
     private ValidationAnswer validate(CheckRequest params) {
         try {
-            if (params.getR() == null) {
-                return new ValidationAnswer(false, "r", "отсутствует или не корректен");
-            }
-            if (params.getX() == null) {
-                return new ValidationAnswer(false, "x", "отсутствует или не корректен");
-            }
-            if (params.getY() == null) {
-                return new ValidationAnswer(false, "y", "отсутствует или не корректен");
-            }
-
-            boolean validX = false;
-            for (Double num : validXValues) {
-                BigDecimal validXBigDecimal = BigDecimal.valueOf(num);
-                if (params.getX().compareTo(validXBigDecimal) == 0) {
-                    validX = true;
-                    break;
-                }
-            }
-            if (!validX) {
-                return new ValidationAnswer(false, "x", "должен быть из: " + validXValues);
-            }
+            if (params.getR() == null) return new ValidationAnswer(false, "r", "отсутствует");
+            if (params.getX() == null) return new ValidationAnswer(false, "x", "отсутствует");
+            if (params.getY() == null) return new ValidationAnswer(false, "y", "отсутствует");
 
             boolean validR = false;
             for (Double num : validRValues) {
@@ -71,17 +64,10 @@ public class AreaCheckService {
                 }
             }
             if (!validR) {
-                return new ValidationAnswer(false, "r", "должен быть из: " + validRValues + " и > 0");
+                return new ValidationAnswer(false, "r", "должен быть из: " + validRValues);
             }
-
-            if (params.getR() <= 0) {
-                return new ValidationAnswer(false, "r", "должен быть строго больше 0");
-            }
-
-            BigDecimal minusFive = new BigDecimal("-5");
-            BigDecimal five = new BigDecimal("5");
-            if (params.getY().compareTo(minusFive) < 0 || params.getY().compareTo(five) > 0) {
-                return new ValidationAnswer(false, "y", "должен быть от -5 до 5. Текущее: " + params.getY());
+            if (params.getR() < 0) {
+                return new ValidationAnswer(false, "r", "не может быть отрицательным");
             }
 
             return new ValidationAnswer(true, null, null);
@@ -92,34 +78,29 @@ public class AreaCheckService {
     }
 
     private boolean checkHit(BigDecimal x, BigDecimal y, Float rF) {
-        BigDecimal zero = BigDecimal.ZERO;
+        if (rF == 0) return false;
+
         BigDecimal r = BigDecimal.valueOf(rF);
-        BigDecimal rHalf = r.divide(BigDecimal.valueOf(2));
+        BigDecimal zero = BigDecimal.ZERO;
+        BigDecimal rHalf = r.multiply(BigDecimal.valueOf(0.5));
 
         if (x.compareTo(zero) >= 0 && y.compareTo(zero) >= 0) {
-            boolean inTriangleBounds = x.compareTo(rHalf) <= 0 && y.compareTo(r) <= 0;
-            if (inTriangleBounds) {
-                BigDecimal lineValue = x.multiply(BigDecimal.valueOf(2)).add(y);
-                if (lineValue.compareTo(r) <= 0) {
-                    return true;
-                }
-            }
+            BigDecimal twoX = x.multiply(BigDecimal.valueOf(2));
+            return twoX.add(y).compareTo(r) <= 0;
         }
 
         if (x.compareTo(zero) <= 0 && y.compareTo(zero) >= 0) {
-            boolean inRectangle = x.compareTo(rHalf.negate()) >= 0 &&
-                    y.compareTo(r) <= 0;
-            if (inRectangle) {
-                return true;
-            }
+            return x.compareTo(rHalf.negate()) >= 0 && y.compareTo(r) <= 0;
         }
 
         if (x.compareTo(zero) <= 0 && y.compareTo(zero) <= 0) {
-            BigDecimal distanceSquared = x.multiply(x).add(y.multiply(y));
-            BigDecimal rSquared = r.multiply(r);
-            if (distanceSquared.compareTo(rSquared) <= 0) {
-                return true;
-            }
+            return false;
+        }
+
+        if (x.compareTo(zero) >= 0 && y.compareTo(zero) <= 0) {
+            BigDecimal distSq = x.pow(2).add(y.pow(2));
+            BigDecimal rHalfSq = rHalf.pow(2);
+            return distSq.compareTo(rHalfSq) <= 0;
         }
 
         return false;

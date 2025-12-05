@@ -55,13 +55,14 @@ public class PointController {
 
             User user = userRepository.findById(userId)
                     .orElseThrow(() -> UserNotFoundException.byEmail(email));
+
             Point point = areaCheckService.checkPoint(request, user);
 
             return Response.ok(point).build();
         }
         catch(ValidationException ex){
             return Response.status(Response.Status.BAD_REQUEST)
-                    .entity(ex)
+                    .entity(new ErrorResponse(ex.getMessage()))
                     .build();
         }
         catch (Exception ex){
@@ -72,7 +73,6 @@ public class PointController {
     }
 
     @GET
-    @Path("/user")
     public Response getPoints(@Context SecurityContext securityContext){
 
         if (securityContext == null || securityContext.getUserPrincipal() == null){
@@ -91,6 +91,7 @@ public class PointController {
 
             User user = userRepository.findById(userId)
                     .orElseThrow(() -> UserNotFoundException.byEmail(email));
+
             List<Point> points = pointRepository.findByUser(user);
 
             return Response.ok(points).build();
@@ -103,4 +104,36 @@ public class PointController {
         }
     }
 
+    @GET
+    @Path("/tile")
+    public Response getPointsByTile(
+            @QueryParam("minX") double minX,
+            @QueryParam("minY") double minY,
+            @QueryParam("maxX") double maxX,
+            @QueryParam("maxY") double maxY,
+            @Context SecurityContext securityContext) {
+
+        if (securityContext == null || securityContext.getUserPrincipal() == null) {
+            return Response.status(Response.Status.UNAUTHORIZED).build();
+        }
+        var principal = securityContext.getUserPrincipal();
+        if (!(principal instanceof JwtSecurityContextInterface jwt)) {
+            return Response.status(Response.Status.UNAUTHORIZED).build();
+        }
+
+        try {
+            Long userId = jwt.getUserId();
+            String email = jwt.getEmail();
+            User user = userRepository.findById(userId)
+                    .orElseThrow(() -> UserNotFoundException.byEmail(email));
+
+            List<Point> points = pointRepository.findPointsInBBox(user, minX, minY, maxX, maxY);
+
+            return Response.ok(points).build();
+        } catch (Exception ex) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(new ErrorResponse(ex.getMessage()))
+                    .build();
+        }
+    }
 }

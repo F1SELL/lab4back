@@ -1,6 +1,5 @@
 package org.example.entity;
 
-
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.*;
@@ -16,7 +15,7 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 @NoArgsConstructor
 @Builder
-public class Point{
+public class Point implements Serializable {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
